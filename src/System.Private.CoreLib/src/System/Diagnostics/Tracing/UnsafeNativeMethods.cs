@@ -252,5 +252,20 @@ namespace Microsoft.Win32
         private const int FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200;
         private const int FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000;
         private const int FORMAT_MESSAGE_ARGUMENT_ARRAY = 0x00002000;
+
+        internal const int REG_NONE = 0;                // No value type
+        internal const int REG_SZ = 1;                  // Unicode nul terminated string
+        internal const int REG_EXPAND_SZ = 2;           // Unicode nul terminated string
+        // (with environment variable references)
+        internal const int REG_BINARY = 3;              // Free form binary
+        internal const int REG_DWORD = 4;               // 32-bit number
+        internal const int REG_DWORD_LITTLE_ENDIAN = 4; // 32-bit number (same as REG_DWORD)
+        internal const int REG_DWORD_BIG_ENDIAN = 5;    // 32-bit number
+        internal const int REG_LINK = 6;                // Symbolic Link (Unicode)
+        internal const int REG_MULTI_SZ = 7;            // Multiple Unicode strings
+        internal const int REG_QWORD = 11;             // 64-bit number
+
+        internal const int KEY_WOW64_64KEY = 0x0100;
+        internal const int KEY_WOW64_32KEY = 0x0200;
     }
 }

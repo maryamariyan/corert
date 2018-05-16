@@ -14,12 +14,6 @@ internal partial class Interop
             internal const int REG_OPTION_BACKUP_RESTORE = 0x0004;  // Use SE_BACKUP_NAME process special privileges
         }
 
-        internal partial class RegistryView
-        {
-            internal const int KEY_WOW64_64KEY = 0x0100;
-            internal const int KEY_WOW64_32KEY = 0x0200;
-        }
-
         internal partial class RegistryOperations
         {
             internal const int KEY_QUERY_VALUE = 0x0001;
@@ -62,4 +56,6 @@ internal partial class Interop
             internal const int REG_QWORD = 11;             // 64-bit number
         }
     }
+
+    
 }

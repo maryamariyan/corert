@@ -11,13 +11,13 @@ namespace Microsoft.Win32
 #endif
     enum RegistryValueKind
     {
-        String = Interop.mincore.RegistryValues.REG_SZ,
-        ExpandString = Interop.mincore.RegistryValues.REG_EXPAND_SZ,
-        Binary = Interop.mincore.RegistryValues.REG_BINARY,
-        DWord = Interop.mincore.RegistryValues.REG_DWORD,
-        MultiString = Interop.mincore.RegistryValues.REG_MULTI_SZ,
-        QWord = Interop.mincore.RegistryValues.REG_QWORD,
+        String = Win32Native.REG_SZ,
+        ExpandString = Win32Native.REG_EXPAND_SZ,
+        Binary = Win32Native.REG_BINARY,
+        DWord = Win32Native.REG_DWORD,
+        MultiString = Win32Native.REG_MULTI_SZ,
+        QWord = Win32Native.REG_QWORD,
         Unknown = 0,                          // REG_NONE is defined as zero but BCL
         None = unchecked((int)0xFFFFFFFF), //  mistakenly overrode this value.  
-    }   // Now instead of using Interop.mincore.RegistryValues.REG_NONE we use "-1".
+    }   // Now instead of using Win32Native.REG_NONE we use "-1".
 }

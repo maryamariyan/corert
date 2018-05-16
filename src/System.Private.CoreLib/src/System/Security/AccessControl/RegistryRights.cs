@@ -28,8 +28,8 @@ namespace System.Security.AccessControl
         /// The Windows Kernel team agrees that it was a bad design to expose the WOW64_n options as permissions.
         /// in the .NET Framework these options are exposed via the RegistryView enum
         ///
-        ///        Reg64             = Interop.mincore.RegistryOptions.KEY_WOW64_64KEY,          // 0x0100 operate on the 64-bit registry view
-        ///        Reg32             = Interop.mincore.RegistryOptions.KEY_WOW64_32KEY,          // 0x0200 operate on the 32-bit registry view
+        ///        Reg64             = Win32Native.KEY_WOW64_64KEY,          // 0x0100 operate on the 64-bit registry view
+        ///        Reg32             = Win32Native.KEY_WOW64_32KEY,          // 0x0200 operate on the 32-bit registry view
         ExecuteKey = ReadKey,
         ReadKey = Interop.mincore.RegistryOperations.STANDARD_RIGHTS_READ | QueryValues | EnumerateSubKeys | Notify,
         WriteKey = Interop.mincore.RegistryOperations.STANDARD_RIGHTS_WRITE | SetValue | CreateSubKey,
