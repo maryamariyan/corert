@@ -44,13 +44,13 @@ namespace System.Collections.Generic
     internal class ArraySortHelper<T>
         : IArraySortHelper<T>
     {
-        private static volatile IArraySortHelper<T> defaultArraySortHelper;
+        private static volatile IArraySortHelper<T> s_defaultArraySortHelper;
 
         public static IArraySortHelper<T> Default
         {
             get
             {
-                IArraySortHelper<T> sorter = defaultArraySortHelper;
+                IArraySortHelper<T> sorter = s_defaultArraySortHelper;
                 if (sorter == null)
                     sorter = CreateArraySortHelper();
 
@@ -62,13 +62,13 @@ namespace System.Collections.Generic
         {
             if (typeof(IComparable<T>).IsAssignableFrom(typeof(T)))
             {
-                defaultArraySortHelper = (IArraySortHelper<T>)RuntimeTypeHandle.Allocate(typeof(GenericArraySortHelper<string>).TypeHandle.Instantiate(new Type[] { typeof(T) }));
+                s_defaultArraySortHelper = (IArraySortHelper<T>)RuntimeTypeHandle.Allocate(typeof(GenericArraySortHelper<string>).TypeHandle.Instantiate(new Type[] { typeof(T) }));
             }
             else
             {
-                defaultArraySortHelper = new ArraySortHelper<T>();
+                s_defaultArraySortHelper = new ArraySortHelper<T>();
             }
-            return defaultArraySortHelper;
+            return s_defaultArraySortHelper;
         }
 
         #region IArraySortHelper<T> Members
@@ -648,19 +648,26 @@ namespace System.Collections.Generic
 
     #region ArraySortHelper for paired key and value arrays
 
+    internal interface IArraySortHelper<TKey, TValue>
+    {
+        void Sort(TKey[] keys, TValue[] values, int index, int length, IComparer<TKey> comparer);
+    }
+
+    [TypeDependencyAttribute("System.Collections.Generic.GenericArraySortHelper`2")]
     internal class ArraySortHelper<TKey, TValue>
+        : IArraySortHelper<TKey, TValue>
     {
         // WARNING: We allow diagnostic tools to directly inspect this member (s_defaultArraySortHelper). 
         // See https://github.com/dotnet/corert/blob/master/Documentation/design-docs/diagnostics/diagnostics-tools-contract.md for more details. 
         // Please do not change the type, the name, or the semantic usage of this member without understanding the implication for tools. 
         // Get in touch with the diagnostics team if you have questions.
-        private static volatile ArraySortHelper<TKey, TValue> s_defaultArraySortHelper;
+        private static volatile IArraySortHelper<TKey, TValue> s_defaultArraySortHelper;
 
-        public static ArraySortHelper<TKey, TValue> Default
+        public static IArraySortHelper<TKey, TValue> Default
         {
             get
             {
-                ArraySortHelper<TKey, TValue> sorter = s_defaultArraySortHelper;
+                IArraySortHelper<TKey, TValue> sorter = s_defaultArraySortHelper;
                 if (sorter == null)
                     sorter = CreateArraySortHelper();
 
@@ -668,15 +675,23 @@ namespace System.Collections.Generic
             }
         }
 
-        private static ArraySortHelper<TKey, TValue> CreateArraySortHelper()
+        private static IArraySortHelper<TKey, TValue> CreateArraySortHelper()
         {
-            s_defaultArraySortHelper = new ArraySortHelper<TKey, TValue>();
+            if (typeof(IComparable<TKey>).IsAssignableFrom(typeof(TKey)))
+            {
+                s_defaultArraySortHelper = (IArraySortHelper<TKey, TValue>)RuntimeTypeHandle.Allocate(typeof(GenericArraySortHelper<string, string>).TypeHandle.Instantiate(new Type[] { typeof(TKey), typeof(TValue) }));
+            }
+            else
+            {
+                s_defaultArraySortHelper = new ArraySortHelper<TKey, TValue>();
+            }
             return s_defaultArraySortHelper;
         }
 
         public void Sort(TKey[] keys, TValue[] values, int index, int length, IComparer<TKey> comparer)
         {
             Debug.Assert(keys != null, "Check the arguments in the caller!");  // Precondition on interface method
+            Debug.Assert(values != null, "Check the arguments in the caller!");
             Debug.Assert(index >= 0 && length >= 0 && (keys.Length - index >= length), "Check the arguments in the caller!");
 
             // Add a try block here to detect IComparers (or their
@@ -703,6 +718,7 @@ namespace System.Collections.Generic
         private static void SwapIfGreaterWithItems(TKey[] keys, TValue[] values, IComparer<TKey> comparer, int a, int b)
         {
             Debug.Assert(keys != null);
+            Debug.Assert(values != null && values.Length >= keys.Length);
             Debug.Assert(comparer != null);
             Debug.Assert(0 <= a && a < keys.Length);
             Debug.Assert(0 <= b && b < keys.Length);
@@ -716,12 +732,13 @@ namespace System.Collections.Generic
                     TKey key = keys[a];
                     keys[a] = keys[b];
                     keys[b] = key;
+
                     if (values != null)
                     {
                         TValue value = values[a];
                         values[a] = values[b];
                         values[b] = value;
-                    }
+                    }              
                 }
             }
         }
@@ -756,7 +773,7 @@ namespace System.Collections.Generic
             if (length < 2)
                 return;
 
-            IntroSort(keys, values, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(keys.Length), comparer);
+            IntroSort(keys, values, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(length), comparer);
         }
 
         private static void IntroSort(TKey[] keys, TValue[] values, int lo, int hi, int depthLimit, IComparer<TKey> comparer)
@@ -868,6 +885,7 @@ namespace System.Collections.Generic
         private static void DownHeap(TKey[] keys, TValue[] values, int i, int n, int lo, IComparer<TKey> comparer)
         {
             Debug.Assert(keys != null);
+            Debug.Assert(values != null);
             Debug.Assert(comparer != null);
             Debug.Assert(lo >= 0);
             Debug.Assert(lo < keys.Length);
@@ -921,6 +939,250 @@ namespace System.Collections.Generic
                 keys[j + 1] = t;
                 if (values != null)
                     values[j + 1] = tValue;
+            }
+        }
+    }
+
+    internal class GenericArraySortHelper<TKey, TValue>
+        : IArraySortHelper<TKey, TValue>
+        where TKey : IComparable<TKey>
+    {
+        public void Sort(TKey[] keys, TValue[] values, int index, int length, IComparer<TKey> comparer)
+        {
+            Debug.Assert(keys != null, "Check the arguments in the caller!");
+            Debug.Assert(index >= 0 && length >= 0 && (keys.Length - index >= length), "Check the arguments in the caller!");
+
+            // Add a try block here to detect IComparers (or their
+            // underlying IComparables, etc) that are bogus.
+            try
+            {
+                if (comparer == null || comparer == Comparer<TKey>.Default)
+                {
+                    IntrospectiveSort(keys, values, index, length);
+                }
+                else
+                {
+                    ArraySortHelper<TKey, TValue>.IntrospectiveSort(keys, values, index, length, comparer);
+                }
+            }
+            catch (IndexOutOfRangeException)
+            {
+                IntrospectiveSortUtilities.ThrowOrIgnoreBadComparer(comparer);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException(SR.InvalidOperation_IComparerFailed, e);
+            }
+        }
+
+        private static void SwapIfGreaterWithItems(TKey[] keys, TValue[] values, int a, int b)
+        {
+            if (a != b)
+            {
+                if (keys[a] != null && keys[a].CompareTo(keys[b]) > 0)
+                {
+                    TKey key = keys[a];
+                    keys[a] = keys[b];
+                    keys[b] = key;
+
+                    TValue value = values[a];
+                    values[a] = values[b];
+                    values[b] = value;                    
+                }
+            }
+        }
+
+        private static void Swap(TKey[] keys, TValue[] values, int i, int j)
+        {
+            if (i != j)
+            {
+                TKey k = keys[i];
+                keys[i] = keys[j];
+                keys[j] = k;
+
+                TValue v = values[i];
+                values[i] = values[j];
+                values[j] = v;
+            }
+        }
+
+        internal static void IntrospectiveSort(TKey[] keys, TValue[] values, int left, int length)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(values != null);
+            Debug.Assert(left >= 0);
+            Debug.Assert(length >= 0);
+            Debug.Assert(length <= keys.Length);
+            Debug.Assert(length + left <= keys.Length);
+            Debug.Assert(length + left <= values.Length);
+
+            if (length < 2)
+                return;
+
+            IntroSort(keys, values, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(length));
+        }
+
+        private static void IntroSort(TKey[] keys, TValue[] values, int lo, int hi, int depthLimit)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(values != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi < keys.Length);
+
+            while (hi > lo)
+            {
+                int partitionSize = hi - lo + 1;
+                if (partitionSize <= IntrospectiveSortUtilities.IntrosortSizeThreshold)
+                {
+                    if (partitionSize == 1)
+                    {
+                        return;
+                    }
+                    if (partitionSize == 2)
+                    {
+                        SwapIfGreaterWithItems(keys, values, lo, hi);
+                        return;
+                    }
+                    if (partitionSize == 3)
+                    {
+                        SwapIfGreaterWithItems(keys, values, lo, hi - 1);
+                        SwapIfGreaterWithItems(keys, values, lo, hi);
+                        SwapIfGreaterWithItems(keys, values, hi - 1, hi);
+                        return;
+                    }
+
+                    InsertionSort(keys, values, lo, hi);
+                    return;
+                }
+
+                if (depthLimit == 0)
+                {
+                    Heapsort(keys, values, lo, hi);
+                    return;
+                }
+                depthLimit--;
+
+                int p = PickPivotAndPartition(keys, values, lo, hi);
+                // Note we've already partitioned around the pivot and do not have to move the pivot again.
+                IntroSort(keys, values, p + 1, hi, depthLimit);
+                hi = p - 1;
+            }
+        }
+
+        private static int PickPivotAndPartition(TKey[] keys, TValue[] values, int lo, int hi)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(values != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi > lo);
+            Debug.Assert(hi < keys.Length);
+
+            // Compute median-of-three.  But also partition them, since we've done the comparison.
+            int middle = lo + ((hi - lo) / 2);
+
+            // Sort lo, mid and hi appropriately, then pick mid as the pivot.
+            SwapIfGreaterWithItems(keys, values, lo, middle);  // swap the low with the mid point
+            SwapIfGreaterWithItems(keys, values, lo, hi);   // swap the low with the high
+            SwapIfGreaterWithItems(keys, values, middle, hi); // swap the middle with the high
+
+            TKey pivot = keys[middle];
+            Swap(keys, values, middle, hi - 1);
+            int left = lo, right = hi - 1;  // We already partitioned lo and hi and put the pivot in hi - 1.  And we pre-increment & decrement below.
+
+            while (left < right)
+            {
+                if (pivot == null)
+                {
+                    while (left < (hi - 1) && keys[++left] == null) ;
+                    while (right > lo && keys[--right] != null) ;
+                }
+                else
+                {
+                    while (pivot.CompareTo(keys[++left]) > 0) ;
+                    while (pivot.CompareTo(keys[--right]) < 0) ;
+                }
+
+                if (left >= right)
+                    break;
+
+                Swap(keys, values, left, right);
+            }
+
+            // Put pivot in the right location.
+            Swap(keys, values, left, (hi - 1));
+            return left;
+        }
+
+        private static void Heapsort(TKey[] keys, TValue[] values, int lo, int hi)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(values != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi > lo);
+            Debug.Assert(hi < keys.Length);
+
+            int n = hi - lo + 1;
+            for (int i = n / 2; i >= 1; i = i - 1)
+            {
+                DownHeap(keys, values, i, n, lo);
+            }
+            for (int i = n; i > 1; i = i - 1)
+            {
+                Swap(keys, values, lo, lo + i - 1);
+                DownHeap(keys, values, 1, i - 1, lo);
+            }
+        }
+
+        private static void DownHeap(TKey[] keys, TValue[] values, int i, int n, int lo)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(lo < keys.Length);
+
+            TKey d = keys[lo + i - 1];
+            TValue dValue = values[lo + i - 1];
+            int child;
+            while (i <= n / 2)
+            {
+                child = 2 * i;
+                if (child < n && (keys[lo + child - 1] == null || keys[lo + child - 1].CompareTo(keys[lo + child]) < 0))
+                {
+                    child++;
+                }
+                if (keys[lo + child - 1] == null || keys[lo + child - 1].CompareTo(d) < 0)
+                    break;
+                keys[lo + i - 1] = keys[lo + child - 1];
+                values[lo + i - 1] = values[lo + child - 1];
+                i = child;
+            }
+            keys[lo + i - 1] = d;
+            values[lo + i - 1] = dValue;
+        }
+
+        private static void InsertionSort(TKey[] keys, TValue[] values, int lo, int hi)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(values != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi >= lo);
+            Debug.Assert(hi <= keys.Length);
+
+            int i, j;
+            TKey t;
+            TValue tValue;
+            for (i = lo; i < hi; i++)
+            {
+                j = i;
+                t = keys[i + 1];
+                tValue = values[i + 1];
+                while (j >= lo && (t == null || t.CompareTo(keys[j]) < 0))
+                {
+                    keys[j + 1] = keys[j];
+                    values[j + 1] = values[j];
+                    j--;
+                }
+                keys[j + 1] = t;
+                values[j + 1] = tValue;
             }
         }
     }
