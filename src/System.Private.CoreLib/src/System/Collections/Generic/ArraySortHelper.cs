@@ -8,6 +8,12 @@ namespace System.Collections.Generic
 {
     #region ArraySortHelper for single arrays
 
+    internal interface IArraySortHelper<TKey>
+    {
+        void Sort(TKey[] keys, int index, int length, IComparer<TKey> comparer);
+        int BinarySearch(TKey[] keys, int index, int length, TKey value, IComparer<TKey> comparer);
+    }
+
     internal static class IntrospectiveSortUtilities
     {
         // This is the threshold where Introspective sort switches to Insertion sort.
@@ -34,9 +40,38 @@ namespace System.Collections.Generic
         }
     }
 
+    [TypeDependencyAttribute("System.Collections.Generic.GenericArraySortHelper`1")]
     internal class ArraySortHelper<T>
+        : IArraySortHelper<T>
     {
-        #region ArraySortHelper<T> public Members
+        private static volatile IArraySortHelper<T> defaultArraySortHelper;
+
+        public static IArraySortHelper<T> Default
+        {
+            get
+            {
+                IArraySortHelper<T> sorter = defaultArraySortHelper;
+                if (sorter == null)
+                    sorter = CreateArraySortHelper();
+
+                return sorter;
+            }
+        }
+
+        private static IArraySortHelper<T> CreateArraySortHelper()
+        {
+            if (typeof(IComparable<T>).IsAssignableFrom(typeof(T)))
+            {
+                defaultArraySortHelper = (IArraySortHelper<T>)RuntimeTypeHandle.Allocate(typeof(GenericArraySortHelper<string>).TypeHandle.Instantiate(new Type[] { typeof(T) }));
+            }
+            else
+            {
+                defaultArraySortHelper = new ArraySortHelper<T>();
+            }
+            return defaultArraySortHelper;
+        }
+
+        #region IArraySortHelper<T> Members
 
         public static void Sort(T[] keys, int index, int length, IComparer<T> comparer)
         {
@@ -318,6 +353,296 @@ namespace System.Collections.Generic
         }
     }
 
+    internal class GenericArraySortHelper<T>
+        : IArraySortHelper<T>
+        where T : IComparable<T>
+    {
+        // Do not add a constructor to this class because ArraySortHelper<T>.CreateSortHelper will not execute it
+
+        #region IArraySortHelper<T> Members
+
+        public void Sort(T[] keys, int index, int length, IComparer<T> comparer)
+        {
+            Debug.Assert(keys != null, "Check the arguments in the caller!");
+            Debug.Assert(index >= 0 && length >= 0 && (keys.Length - index >= length), "Check the arguments in the caller!");
+
+            try
+            {
+                if (comparer == null || comparer == Comparer<T>.Default)
+                {
+                    IntrospectiveSort(keys, index, length);
+                }
+                else
+                {
+                    ArraySortHelper<T>.IntrospectiveSort(keys, index, length, comparer.Compare);
+                }
+            }
+            catch (IndexOutOfRangeException)
+            {
+                IntrospectiveSortUtilities.ThrowOrIgnoreBadComparer(comparer);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException(SR.InvalidOperation_IComparerFailed, e);
+            }
+        }
+
+        public int BinarySearch(T[] array, int index, int length, T value, IComparer<T> comparer)
+        {
+            Debug.Assert(array != null, "Check the arguments in the caller!");
+            Debug.Assert(index >= 0 && length >= 0 && (array.Length - index >= length), "Check the arguments in the caller!");
+
+            try
+            {
+                if (comparer == null || comparer == Comparer<T>.Default)
+                {
+                    return BinarySearch(array, index, length, value);
+                }
+                else
+                {
+                    return ArraySortHelper<T>.InternalBinarySearch(array, index, length, value, comparer);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException(SR.InvalidOperation_IComparerFailed, e);
+            }
+        }
+
+        #endregion
+
+        // This function is called when the user doesn't specify any comparer.
+        // Since T is constrained here, we can call IComparable<T>.CompareTo here.
+        // We can avoid boxing for value type and casting for reference types.
+        private static int BinarySearch(T[] array, int index, int length, T value)
+        {
+            int lo = index;
+            int hi = index + length - 1;
+            while (lo <= hi)
+            {
+                int i = lo + ((hi - lo) >> 1);
+                int order;
+                if (array[i] == null)
+                {
+                    order = (value == null) ? 0 : -1;
+                }
+                else
+                {
+                    order = array[i].CompareTo(value);
+                }
+
+                if (order == 0)
+                {
+                    return i;
+                }
+
+                if (order < 0)
+                {
+                    lo = i + 1;
+                }
+                else
+                {
+                    hi = i - 1;
+                }
+            }
+
+            return ~lo;
+        }
+
+        private static void SwapIfGreaterWithItems(T[] keys, int a, int b)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(0 <= a && a < keys.Length);
+            Debug.Assert(0 <= b && b < keys.Length);
+
+            if (a != b)
+            {
+                if (keys[a] != null && keys[a].CompareTo(keys[b]) > 0)
+                {
+                    T key = keys[a];
+                    keys[a] = keys[b];
+                    keys[b] = key;
+                }
+            }
+        }
+
+        private static void Swap(T[] a, int i, int j)
+        {
+            if (i != j)
+            {
+                T t = a[i];
+                a[i] = a[j];
+                a[j] = t;
+            }
+        }
+
+        internal static void IntrospectiveSort(T[] keys, int left, int length)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(left >= 0);
+            Debug.Assert(length >= 0);
+            Debug.Assert(length <= keys.Length);
+            Debug.Assert(length + left <= keys.Length);
+
+            if (length < 2)
+                return;
+
+            IntroSort(keys, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(length));
+        }
+
+        private static void IntroSort(T[] keys, int lo, int hi, int depthLimit)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi < keys.Length);
+
+            while (hi > lo)
+            {
+                int partitionSize = hi - lo + 1;
+                if (partitionSize <= IntrospectiveSortUtilities.IntrosortSizeThreshold)
+                {
+                    if (partitionSize == 1)
+                    {
+                        return;
+                    }
+                    if (partitionSize == 2)
+                    {
+                        SwapIfGreaterWithItems(keys, lo, hi);
+                        return;
+                    }
+                    if (partitionSize == 3)
+                    {
+                        SwapIfGreaterWithItems(keys, lo, hi - 1);
+                        SwapIfGreaterWithItems(keys, lo, hi);
+                        SwapIfGreaterWithItems(keys, hi - 1, hi);
+                        return;
+                    }
+
+                    InsertionSort(keys, lo, hi);
+                    return;
+                }
+
+                if (depthLimit == 0)
+                {
+                    Heapsort(keys, lo, hi);
+                    return;
+                }
+                depthLimit--;
+
+                int p = PickPivotAndPartition(keys, lo, hi);
+                // Note we've already partitioned around the pivot and do not have to move the pivot again.
+                IntroSort(keys, p + 1, hi, depthLimit);
+                hi = p - 1;
+            }
+        }
+
+        private static int PickPivotAndPartition(T[] keys, int lo, int hi)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi > lo);
+            Debug.Assert(hi < keys.Length);
+
+            // Compute median-of-three.  But also partition them, since we've done the comparison.
+            int middle = lo + ((hi - lo) / 2);
+
+            // Sort lo, mid and hi appropriately, then pick mid as the pivot.
+            SwapIfGreaterWithItems(keys, lo, middle);  // swap the low with the mid point
+            SwapIfGreaterWithItems(keys, lo, hi);   // swap the low with the high
+            SwapIfGreaterWithItems(keys, middle, hi); // swap the middle with the high
+
+            T pivot = keys[middle];
+            Swap(keys, middle, hi - 1);
+            int left = lo, right = hi - 1;  // We already partitioned lo and hi and put the pivot in hi - 1.  And we pre-increment & decrement below.
+
+            while (left < right)
+            {
+                if (pivot == null)
+                {
+                    while (left < (hi - 1) && keys[++left] == null) ;
+                    while (right > lo && keys[--right] != null) ;
+                }
+                else
+                {
+                    while (pivot.CompareTo(keys[++left]) > 0) ;
+                    while (pivot.CompareTo(keys[--right]) < 0) ;
+                }
+
+                if (left >= right)
+                    break;
+
+                Swap(keys, left, right);
+            }
+
+            // Put pivot in the right location.
+            Swap(keys, left, (hi - 1));
+            return left;
+        }
+
+        private static void Heapsort(T[] keys, int lo, int hi)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi > lo);
+            Debug.Assert(hi < keys.Length);
+
+            int n = hi - lo + 1;
+            for (int i = n / 2; i >= 1; i = i - 1)
+            {
+                DownHeap(keys, i, n, lo);
+            }
+            for (int i = n; i > 1; i = i - 1)
+            {
+                Swap(keys, lo, lo + i - 1);
+                DownHeap(keys, 1, i - 1, lo);
+            }
+        }
+
+        private static void DownHeap(T[] keys, int i, int n, int lo)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(lo < keys.Length);
+
+            T d = keys[lo + i - 1];
+            int child;
+            while (i <= n / 2)
+            {
+                child = 2 * i;
+                if (child < n && (keys[lo + child - 1] == null || keys[lo + child - 1].CompareTo(keys[lo + child]) < 0))
+                {
+                    child++;
+                }
+                if (keys[lo + child - 1] == null || keys[lo + child - 1].CompareTo(d) < 0)
+                    break;
+                keys[lo + i - 1] = keys[lo + child - 1];
+                i = child;
+            }
+            keys[lo + i - 1] = d;
+        }
+
+        private static void InsertionSort(T[] keys, int lo, int hi)
+        {
+            Debug.Assert(keys != null);
+            Debug.Assert(lo >= 0);
+            Debug.Assert(hi >= lo);
+            Debug.Assert(hi <= keys.Length);
+
+            int i, j;
+            T t;
+            for (i = lo; i < hi; i++)
+            {
+                j = i;
+                t = keys[i + 1];
+                while (j >= lo && (t == null || t.CompareTo(keys[j]) < 0))
+                {
+                    keys[j + 1] = keys[j];
+                    j--;
+                }
+                keys[j + 1] = t;
+            }
+        }
+    }
 
     #endregion
 
