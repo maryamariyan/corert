@@ -165,7 +165,7 @@ namespace System.Collections.Generic
             if (length < 2)
                 return;
 
-            IntroSort(keys, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(keys.Length), comparer);
+            IntroSort(keys, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(length), comparer);
         }
 
         private static void IntroSort(T[] keys, int lo, int hi, int depthLimit, Comparison<T> comparer)
@@ -431,7 +431,7 @@ namespace System.Collections.Generic
             if (length < 2)
                 return;
 
-            IntroSort(keys, values, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(keys.Length), comparer);
+            IntroSort(keys, values, left, length + left - 1, 2 * IntrospectiveSortUtilities.FloorLog2PlusOne(length), comparer);
         }
 
         private static void IntroSort(TKey[] keys, TValue[] values, int lo, int hi, int depthLimit, IComparer<TKey> comparer)
